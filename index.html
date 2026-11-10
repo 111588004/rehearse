@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deck</title>
+<style>
+  /* 介面只用灰階；--accent 只用在焦點框和進度條，狀態色只用在連線狀態 */
+  :root {
+    --bg: #000; --glass: rgba(24,24,27,.78); --line: rgba(255,255,255,.14); --hover: rgba(255,255,255,.1);
+    --fg: #fafafa; --muted: rgba(255,255,255,.55); --accent: #4c8dff; --ok: #3fb950; --warn: #d29922;
+  }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif; color: var(--fg); user-select: none; -webkit-user-select: none; }
+  #stage { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden; background: #fff; color: #111; }
+  .plate { position: absolute; inset: 0; width: 1920px; height: 1080px; object-fit: cover; overflow: hidden; }
+  .plate > .slide { position: absolute; inset: 0; background: #fff; box-sizing: border-box; overflow: hidden; }  /* html 頁要有底色，轉場時才不會跟上一頁疊在一起 */
+  .el { position: absolute; transform-origin: 50% 50%; will-change: transform, opacity; }
+  .el img { position: absolute; display: block; }
+  #hud { position: fixed; right: 16px; bottom: 12px; color: var(--muted); font-variant-numeric: tabular-nums; transition: opacity .4s; pointer-events: none; }
+  body.idle #hud, body.idle #tools { opacity: 0; pointer-events: none; }
+  #tools { position: fixed; top: 12px; right: 12px; display: flex; gap: 6px; transition: opacity .4s; z-index: 5; }
+  button { font: 500 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif; color: var(--fg); }
+  #tools button { background: var(--glass); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; backdrop-filter: blur(8px); }
+  #tools button:hover, #vbar button:hover, #rdlg button:hover { background: var(--hover); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  body.mirror #tools, body.mirror #hud { display: none; }
+  #play { position: fixed; inset: 0; margin: auto; width: 88px; height: 88px; border-radius: 50%; border: 0; background: rgba(255,255,255,.92); cursor: pointer; display: none; }
+  #play::after { content: ""; position: absolute; left: 35px; top: 26px; border-left: 28px solid #111; border-top: 18px solid transparent; border-bottom: 18px solid transparent; }
+  /* 影片播放列（放上方，不擋字幕）：滑鼠一動就出現，靜止 2 秒隱藏；暫停時一直顯示 */
+  #vbar { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); width: min(880px, calc(100vw - 32px)); display: none; align-items: center; gap: 12px; padding: 8px 12px; background: var(--glass); border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(10px); z-index: 6; transition: opacity .4s; font-variant-numeric: tabular-nums; }
+  body.hasVideo #vbar { display: flex; }
+  body.hasVideo #tools { display: none; }
+  body.idle:not(.vpaused) #vbar { opacity: 0; pointer-events: none; }
+  body.mirror #vbar, body.mirror #vstat { display: none !important; }
+  #vbar button { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; }
+  #vbar svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #vbar input[type=range] { accent-color: var(--accent); cursor: pointer; height: 24px; }
+  #vSeek { flex: 1; min-width: 80px; }
+  #vVol { width: 110px; }
+  #vTime { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  #vstat { position: fixed; left: 16px; bottom: 12px; color: var(--muted); font-size: 13px; transition: opacity .4s; pointer-events: none; }
+  body.idle #vstat { opacity: 0; }
+  /* 手機遙控 */
+  #btnRemote .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--muted); vertical-align: 1px; }
+  #btnRemote[data-s=online] .dot { background: var(--ok); }
+  #btnRemote[data-s=connecting] .dot, #btnRemote[data-s=offline] .dot { background: var(--warn); }
+  #rdlg { border: 1px solid var(--line); border-radius: 14px; background: #18181b; color: var(--fg); padding: 24px; width: min(400px, calc(100vw - 32px)); box-sizing: border-box; text-align: center; user-select: text; -webkit-user-select: text; }
+  #rdlg::backdrop { background: rgba(0,0,0,.6); }
+  #rdlg h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+  #rdlg p { margin: 6px 0; color: var(--muted); font-size: 13px; }
+  #rQR { width: 200px; height: 200px; margin: 16px auto 8px; background: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #111; }
+  #rQR svg, #rQR img { width: 100%; height: 100%; display: block; }
+  #rCode { font: 600 34px/1.1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .14em; margin: 6px 0; }
+  #rLink { word-break: break-all; font-size: 12px !important; }
+  #rStat { font-weight: 500; color: var(--fg) !important; }
+  #rStat.ok { color: var(--ok) !important; }
+  #rdlg .row { display: flex; gap: 8px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+  #rdlg button { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+  #rdlg button.primary { background: var(--fg); color: #111; border-color: var(--fg); }
+  #rdlg button.primary:hover { background: #d4d4d8; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="hud"></div>
+<button id="play" aria-label="播放影片"></button>
+<div id="vstat"></div>
+<div id="vbar" role="group" aria-label="影片播放控制">
+  <button id="vPlay" aria-label="播放／暫停"></button>
+  <span id="vTime">00:00 / 00:00</span>
+  <input id="vSeek" type="range" min="0" max="1000" value="0" step="1" aria-label="影片進度">
+  <button id="vMute" aria-label="靜音"></button>
+  <input id="vVol" type="range" min="0" max="100" value="100" step="1" aria-label="音量">
+</div>
+<div id="tools">
+  <button id="btnFull" title="全螢幕播放（F）">全螢幕播放</button>
+  <button id="btnRemote" title="用手機翻頁：手機掃 QR code 開講者模式" data-s="off"><span class="dot"></span><span id="btnRemoteLbl">手機遙控</span></button>
+  <button id="btnPresenter" title="講者模式（P）：另開視窗看講稿，觀眾畫面不顯示">講者模式</button>
+</div>
+<dialog id="rdlg" aria-labelledby="rTitle">
+  <h2 id="rTitle">手機遙控</h2>
+  <p>用手機相機掃描，或在手機講者模式輸入代碼</p>
+  <div id="rQR">產生中…</div>
+  <div id="rCode"></div>
+  <p id="rLink"></p>
+  <p id="rStat"></p>
+  <div class="row"><button id="rNew">換一組代碼</button><button id="rOff">關閉遙控</button><button id="rDone" class="primary">完成</button></div>
+</dialog>
+<script src="config.js"></script>
+<script src="deck.js"></script>
+<script src="remote.js"></script>
+<script>
+const D = window.DECK, S = D.slides.map(x => ({ els: [], ...x })), stage = document.getElementById('stage'), hud = document.getElementById('hud'), playBtn = document.getElementById('play');
+const DUR = 600, EASE = 'cubic-bezier(.33,0,.2,1)';
+// 影片：開簡報就在背景整支下載進記憶體，播放時不受會場網路影響
+const videoURL = {}, vstat = document.getElementById('vstat');
+let cur = 0, busy = null;
+// 角色：audience＝給觀眾看的主畫面；mirror＝講者視窗裡的預覽（ofs=1 是下一頁）
+const Q = new URLSearchParams(location.search);
+const ROLE = Q.has('mirror') ? 'mirror' : 'audience', OFS = +(Q.get('ofs') || 0);
+const ch = new BroadcastChannel('deck');
+let R = null, roomReq = null;  // 手機遙控連線（只有觀眾畫面會連）；roomReq：講者視窗要代碼時呼叫
+const state = () => ({ cur, ...(curVideo && { vp: curVideo.paused }) });
+const announce = () => { if (ROLE !== 'audience') return; ch.postMessage(state()); R && R.send(state()); };
+if (ROLE === 'mirror') document.body.classList.add('mirror');
+
+// 依視窗等比縮放 1920×1080
+function fit() {
+  const k = Math.min(innerWidth / 1920, innerHeight / 1080);
+  stage.style.transform = `scale(${k}) translate(-50%,-50%)`;
+}
+addEventListener('resize', fit); fit();
+
+if (D.title) document.title = D.title;
+// deck.css：所有 html 頁共用的樣式
+if (D.css) { const st = document.createElement('style'); st.textContent = D.css; document.head.appendChild(st); }
+// 預載所有圖片
+S.forEach(s => { if (s.plate) new Image().src = 'assets/' + s.plate; s.els.forEach(e => e.img && (new Image().src = 'assets/' + e.img)); });
+
+function plateNode(s) {
+  if (s.video) {
+    const v = document.createElement('video');
+    Object.assign(v, { src: videoURL[s.video] || 'assets/' + s.video, poster: s.plate ? 'assets/' + s.plate : '', playsInline: true, muted: ROLE === 'mirror', preload: 'auto' });
+    v.className = 'plate';
+    v.onended = () => {};  // 播完停在最後一格
+    return v;
+  }
+  if (s.html != null) { const d = document.createElement('div'); d.className = 'plate'; d.innerHTML = s.html; return d; }
+  const i = new Image(); i.src = 'assets/' + s.plate; i.className = 'plate'; i.alt = ''; return i;
+}
+const box = e => `left:${e.cx - e.w / 2}px;top:${e.cy - e.h / 2}px;width:${e.w}px;height:${e.h}px`;
+// Figma 的旋轉是逆時針為正，CSS 相反
+const rot = e => `rotate(${-e.r}deg)`;
+function elNode(e) {
+  const d = document.createElement('div');
+  d.className = 'el'; d.style.cssText = box(e); d.style.transform = rot(e);
+  if (e.img) { const i = new Image(); i.src = 'assets/' + e.img; i.style.cssText = `left:${-e.bx}px;top:${-e.by}px;width:${e.iw}px;height:${e.ih}px`; d.appendChild(i); }
+  return d;
+}
+
+function render(i) {
+  stage.replaceChildren();
+  const s = S[i], p = plateNode(s);
+  stage.appendChild(p);
+  s.els.forEach(e => { if (e.img && e.o > 0) { const n = elNode(e); n.style.opacity = e.o; stage.appendChild(n); } });
+  if (s.video && !(ROLE === 'mirror' && OFS)) { if (ROLE === 'audience') attachVideo(p); startVideo(p); }
+  else detachVideo();
+  hud.textContent = `${i + 1} / ${S.length}`;
+}
+
+function startVideo(v) {
+  playBtn.style.display = 'none';
+  if (ROLE === 'mirror') { v.currentTime = 0; v.play().catch(() => {}); return; }
+  v.currentTime = 0;
+  v.play().catch(() => { playBtn.style.display = 'block'; playBtn.onclick = e => { e.stopPropagation(); playBtn.style.display = 'none'; v.play(); }; });
+}
+
+// Smart Animate：同名圖層從 A 的位置與大小移到 B，其他東西交叉淡化
+function go(j) {
+  if (j < 0 || j >= S.length || j === cur) return;
+  if (ROLE === 'audience') history.replaceState(null, '', location.pathname + location.search + '#' + (j + 1));  // 重新整理會回到這一頁
+  if (busy) { const b = busy; busy = null; b.forEach(a => a.finish()); }  // 先清掉，避免舊動畫結束時把上一頁畫回來
+  const A = S[cur], B = S[j], adjacent = Math.abs(j - cur) === 1;
+  playBtn.style.display = 'none'; detachVideo();
+  // 進影片頁不做轉場：影片第一格就是上一頁
+  if (B.video && adjacent && j > cur) { cur = j; render(j); return; }
+  const anims = [];
+  const old = [...stage.children];
+  const pB = plateNode(B); pB.style.opacity = 0; stage.appendChild(pB);
+  if (pB.tagName === 'VIDEO') pB.pause();
+  anims.push(pB.animate([{ opacity: 0 }, { opacity: 1 }], { duration: DUR, easing: EASE, fill: 'forwards' }));
+  // 舊的浮動圖層先拿掉，改由下面重建做動畫
+  old.filter(n => n.classList.contains('el')).forEach(n => n.remove());
+  const bmap = Object.fromEntries((adjacent ? B.els : []).map(e => [e.k, e]));
+  const amap = Object.fromEntries((adjacent ? A.els : []).map(e => [e.k, e]));
+  const fly = (from, to, img, o0, o1) => {
+    const n = elNode({ ...from, ...img && { img: img.img, iw: img.iw, ih: img.ih, bx: img.bx, by: img.by } });
+    // 用 A 的圖但最後要變成 B 的大小：以縮放換算，圖片比例跟著框走
+    stage.appendChild(n);
+    const sx = to.w / from.w, sy = to.h / from.h, dx = to.cx - from.cx, dy = to.cy - from.cy;
+    anims.push(n.animate([
+      { transform: `translate(0,0) ${rot(from)} scale(1,1)`, opacity: o0 },
+      { transform: `translate(${dx}px,${dy}px) ${rot(to)} scale(${sx},${sy})`, opacity: o1 }
+    ], { duration: DUR, easing: EASE, fill: 'forwards' }));
+  };
+  const flyBack = (from, to, img, o0, o1) => {  // B 的圖從 A 的位置長到 B
+    const n = elNode({ ...to, img: img.img, iw: img.iw, ih: img.ih, bx: img.bx, by: img.by });
+    stage.appendChild(n);
+    const sx = from.w / to.w, sy = from.h / to.h, dx = from.cx - to.cx, dy = from.cy - to.cy;
+    anims.push(n.animate([
+      { transform: `translate(${dx}px,${dy}px) ${rot(from)} scale(${sx},${sy})`, opacity: o0 },
+      { transform: `translate(0,0) ${rot(to)} scale(1,1)`, opacity: o1 }
+    ], { duration: DUR, easing: EASE, fill: 'forwards' }));
+  };
+  A.els.forEach(a => {
+    const b = bmap[a.k];
+    if (!a.img || !(a.o > 0)) return;
+    if (b) fly(a, b, a, a.o, b.img ? 0 : b.o);
+    else { const n = elNode(a); stage.appendChild(n); anims.push(n.animate([{ opacity: a.o }, { opacity: 0 }], { duration: DUR, easing: EASE, fill: 'forwards' })); }
+  });
+  B.els.forEach(b => {
+    const a = amap[b.k];
+    if (!b.img || !(b.o > 0)) return;
+    if (a) flyBack(a, b, b, a.img ? 0 : a.o, b.o);
+    else { const n = elNode(b); stage.appendChild(n); anims.push(n.animate([{ opacity: 0 }, { opacity: b.o }], { duration: DUR, easing: EASE, fill: 'forwards' })); }
+  });
+  busy = anims; cur = j;
+  hud.textContent = `${j + 1} / ${S.length}`;
+  Promise.all(anims.map(a => a.finished)).then(() => { if (busy === anims) { busy = null; render(j); } }, () => {});
+}
+
+const nav = j => { j = Math.max(0, Math.min(S.length - 1, j)); if (j === cur) return; go(j); announce(); };
+const next = () => nav(cur + 1), prev = () => nav(cur - 1);
+const fullscreen = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+const openPresenter = () => window.open(`presenter.html#${cur + 1}`, 'deck-presenter', 'width=1280,height=800');
+
+// 講者視窗或其他觀眾視窗換頁時，這裡跟著換
+ch.onmessage = e => {
+  if (ROLE === 'audience' && e.data && e.data.v === 'toggle') return togglePlay();
+  if (ROLE === 'audience' && e.data && e.data.rq) return roomReq && roomReq(e.data.rq);
+  const j = e.data && e.data.cur; if (typeof j !== 'number') return;
+  if (ROLE === 'mirror') { const k = Math.min(S.length - 1, j + OFS); if (OFS) { if (k !== cur) { cur = k; render(k); } } else go(k); return; }
+  if (e.data.ask) return announce();   // 講者視窗剛開，問現在第幾頁
+  go(j); R && R.send(state());
+};
+
+if (ROLE === 'audience') {
+  addEventListener('keydown', e => {
+    if ($v('rdlg').open) return;
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); next(); }
+    else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') nav(0);
+    else if (e.key === 'End') nav(S.length - 1);
+    else if (e.key === 'f' || e.key === 'F') fullscreen();
+    else if (e.key === 'p' || e.key === 'P') openPresenter();
+    else if ((e.key === 'k' || e.key === 'K') && curVideo) togglePlay();
+    else if ((e.key === 'm' || e.key === 'M') && curVideo) toggleMute();
+  });
+  addEventListener('click', e => { if (e.target.closest('#tools, #vbar, #play, #rdlg')) return; e.clientX > innerWidth / 3 ? next() : prev(); });
+  let tx = null;
+  addEventListener('touchstart', e => { tx = e.target.closest('#vbar') ? null : e.touches[0].clientX; }, { passive: true });
+  addEventListener('touchend', e => { if (tx === null) return; const d = e.changedTouches[0].clientX - tx; if (Math.abs(d) > 40) (d < 0 ? next : prev)(); tx = null; });
+  document.getElementById('btnFull').onclick = fullscreen;
+  document.getElementById('btnPresenter').onclick = openPresenter;
+}
+// ---- 影片播放列 ----
+const VKEY = 'deck-volume', $v = id => document.getElementById(id);
+let vol = { v: 1, m: false }; try { Object.assign(vol, JSON.parse(localStorage.getItem(VKEY)) || {}); } catch (e) {}
+const saveVol = () => { try { localStorage.setItem(VKEY, JSON.stringify(vol)); } catch (e) {} };
+const VI = {
+  play: '<path d="M7 5v14l11-7z"/>', pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
+  vol: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>', mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
+};
+const icon = (el, k) => { el.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${VI[k]}</svg>`; };
+const t2 = x => { x = Math.max(0, Math.floor(x || 0)); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+let curVideo = null, seeking = false;
+function syncBar() {
+  const v = curVideo; if (!v) return;
+  icon($v('vPlay'), v.paused ? 'play' : 'pause'); $v('vPlay').setAttribute('aria-label', v.paused ? '播放' : '暫停');
+  document.body.classList.toggle('vpaused', v.paused);
+  $v('vTime').textContent = `${t2(v.currentTime)} / ${t2(v.duration)}`;
+  if (!seeking && v.duration) $v('vSeek').value = Math.round(v.currentTime / v.duration * 1000);
+  icon($v('vMute'), v.muted || v.volume === 0 ? 'mute' : 'vol'); $v('vMute').setAttribute('aria-label', v.muted ? '取消靜音' : '靜音');
+  $v('vVol').value = v.muted ? 0 : Math.round(v.volume * 100);
+}
+function attachVideo(v) {
+  curVideo = v; v.volume = vol.v; v.muted = vol.m;
+  ['timeupdate', 'play', 'pause', 'loadedmetadata', 'volumechange', 'ended'].forEach(ev => v.addEventListener(ev, syncBar));
+  ['play', 'pause'].forEach(ev => v.addEventListener(ev, () => { if (curVideo === v) { ch.postMessage(state()); R && R.send(state()); } }));
+  document.body.classList.add('hasVideo'); syncBar();
+}
+function detachVideo() { curVideo = null; document.body.classList.remove('hasVideo', 'vpaused'); }
+const togglePlay = () => { if (!curVideo) return; if (curVideo.paused) { playBtn.style.display = 'none'; curVideo.play().catch(() => {}); } else curVideo.pause(); };
+const toggleMute = () => { if (!curVideo) return; curVideo.muted = !curVideo.muted; if (!curVideo.muted && curVideo.volume === 0) curVideo.volume = vol.v || 1; vol.m = curVideo.muted; saveVol(); };
+$v('vPlay').onclick = togglePlay; $v('vMute').onclick = toggleMute;
+$v('vSeek').addEventListener('input', () => { seeking = true; if (curVideo && curVideo.duration) { curVideo.currentTime = $v('vSeek').value / 1000 * curVideo.duration; $v('vTime').textContent = `${t2(curVideo.currentTime)} / ${t2(curVideo.duration)}`; } });
+$v('vSeek').addEventListener('change', () => { seeking = false; });
+$v('vVol').addEventListener('input', () => { if (!curVideo) return; const x = $v('vVol').value / 100; curVideo.volume = x; curVideo.muted = x === 0; vol = { v: x || vol.v, m: x === 0 }; saveVol(); });
+icon($v('vPlay'), 'play'); icon($v('vMute'), vol.m ? 'mute' : 'vol');
+if (ROLE === 'audience') {
+  const vids = [...new Set(S.filter(s => s.video).map(s => s.video))];
+  vstat.textContent = '影片預載中…';
+  Promise.all(vids.map(f => fetch('assets/' + f).then(r => r.ok ? r.blob() : Promise.reject(r.status)).then(b => { videoURL[f] = URL.createObjectURL(b); })))
+    .then(() => { vstat.textContent = '✓ 影片已預載，可離線播放'; }, () => { vstat.textContent = '影片預載失敗，播放時會直接從網路讀取'; });
+}
+
+// ---- 手機遙控（config.js 沒填 Supabase 就隱藏）----
+if (!window.DeckRemote) $v('btnRemote').hidden = true;
+if (ROLE === 'audience' && window.DeckRemote) {
+  const rb = $v('btnRemote'), dlg = $v('rdlg');
+  let peers = 0, st = 'off', qrLoad = null;
+  const link = () => new URL(`presenter.html?room=${R.room}`, location.href).href;
+  const paint = () => {
+    rb.dataset.s = st;
+    $v('btnRemoteLbl').textContent = st === 'off' ? '手機遙控' : st !== 'online' ? '遙控重新連線中…' : peers ? `遙控：${peers} 支手機` : '遙控：等待手機';
+    ch.postMessage({ room: R.room || '', link: R.room ? link() : '', peers, st });  // 同一台電腦的講者視窗也顯示代碼
+    $v('rStat').className = st === 'online' && peers ? 'ok' : '';
+    $v('rStat').textContent = st === 'online' ? (peers ? `✓ 已連線 ${peers} 支手機，可以開始翻頁` : '已就緒，等待手機連線…') : st === 'off' ? '遙控已關閉' : '連線中…（需要網路）';
+  };
+  R = DeckRemote({
+    role: 'audience',
+    onStatus: s => { st = s; paint(); },
+    onPeers: list => { peers = list.filter(r => r === 'presenter').length; paint(); },
+    onMsg: m => {
+      if (m.joined || m.ask) return R.send(state());
+      if (m.v === 'toggle') return togglePlay();
+      if (typeof m.cur === 'number') { const j = Math.max(0, Math.min(S.length - 1, m.cur)); if (j !== cur) { go(j); ch.postMessage({ cur }); } R.send(state()); }
+    },
+  });
+  const qr = () => {
+    const box = $v('rQR'), draw = () => { const q = qrcode(0, 'M'); q.addData(link()); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); };
+    if (window.qrcode) return draw();
+    qrLoad = qrLoad || new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'qrcode.js'; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); });
+    qrLoad.then(draw, () => { box.textContent = '無法產生 QR code，請改用下方代碼'; });
+  };
+  const fill = () => { $v('rCode').textContent = R.room; $v('rLink').textContent = link(); qr(); paint(); };
+  rb.onclick = e => { e.stopPropagation(); if (!R.room) R.start(DeckRemote.newCode()); fill(); dlg.showModal(); };
+  $v('rNew').onclick = () => { R.start(DeckRemote.newCode()); fill(); };
+  $v('rOff').onclick = () => { R.stop(); dlg.close(); };
+  $v('rDone').onclick = () => dlg.close();
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  roomReq = rq => { if (rq === 'off') R.stop(); else if (rq === 'new' || !R.room) R.start(DeckRemote.newCode()); paint(); };
+  const saved = DeckRemote.saved('audience'); if (saved) R.start(saved);  // 重新整理後自動接回同一個房間
+  paint();
+}
+
+let idle; addEventListener('mousemove', () => { document.body.classList.remove('idle'); clearTimeout(idle); idle = setTimeout(() => document.body.classList.add('idle'), 2000); });
+document.body.classList.add('idle');
+
+const start = Math.max(0, Math.min(S.length - 1, (parseInt(location.hash.slice(1)) || 1) - 1 + OFS));
+cur = start; render(start);
+addEventListener('hashchange', () => nav((parseInt(location.hash.slice(1)) || 1) - 1));
+</script>
+</body>
+</html>

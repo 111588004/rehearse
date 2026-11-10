@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>講者模式</title>
+<style>
+  /* 介面只用灰階；--accent 只標「現在這一頁」和焦點框；--ok / --warn 只用在連線狀態 */
+  :root { color-scheme: dark; --bg: #0f0f10; --panel: #18181b; --line: rgba(255,255,255,.1); --hover: rgba(255,255,255,.06); --fg: #ededed; --muted: #8b8b93; --accent: #4c8dff; --ok: #3fb950; --warn: #d29922; }
+  @media (prefers-color-scheme: light) { :root { color-scheme: light; --bg: #fff; --panel: #f6f6f7; --line: rgba(0,0,0,.1); --hover: rgba(0,0,0,.04); --fg: #18181b; --muted: #6b6b73; --accent: #2563eb; --ok: #1a7f37; --warn: #9a6700; } }
+  * { box-sizing: border-box; } [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, "PingFang TC", "Noto Sans TC", sans-serif; }
+  body { display: grid; grid-template-rows: auto 1fr auto auto; height: 100vh; height: 100dvh; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 14px; font-weight: 600; margin: 0; color: var(--muted); }
+  .timer { font: 600 22px/1 ui-monospace, "SF Mono", monospace; font-variant-numeric: tabular-nums; }
+  .clock { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pageTimer { font: 600 14px/1 ui-monospace, "SF Mono", monospace; font-variant-numeric: tabular-nums; color: var(--muted); padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+  dialog { width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--fg); }
+  dialog[open] { display: flex; flex-direction: column; }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  .dlgHead { display: flex; align-items: center; gap: 8px; padding: 14px 14px 6px 18px; }
+  .dlgHead h2 { margin: 0; font-size: 17px; }
+  .dlgNote { margin: 0; padding: 0 18px 10px; font-size: 12px; color: var(--muted); }
+  .dlgBody { overflow: auto; padding: 0 10px 12px; }
+  #timesTable { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  #timesTable td { padding: 7px 8px; border-top: 1px solid var(--line); }
+  #timesTable td:first-child { color: var(--muted); width: 2.5em; text-align: right; }
+  #timesTable td:last-child { text-align: right; white-space: nowrap; font-family: ui-monospace, "SF Mono", monospace; }
+  #timesTable tr.on td { color: var(--fg); font-weight: 600; }
+  #timesTable tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
+  .spacer { flex: 1; }
+  button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: 600 13px/1 inherit; font-family: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  button:hover { background: var(--hover); }
+  button svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  button.iconOnly { padding: 7px 9px; }
+  button { white-space: nowrap; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 16px; padding: 16px; min-height: 0; }
+  .label { font-size: 12px; color: var(--muted); margin: 0 0 6px; display: flex; justify-content: space-between; }
+  .frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
+  .frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+  .cur .frame { outline: 2px solid var(--accent); }
+  .side { display: flex; flex-direction: column; gap: 0; min-height: 0; }
+  .notesCard { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border-radius: 8px; overflow: hidden; }
+  .notesCard.editing { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .notesBar { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .notesBar .notesLabel { font-weight: 600; color: var(--fg); }
+  .notesBar .nextTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notesBar button { padding: 7px 10px; background: transparent; }
+  .notesBar button.iconOnly { padding: 7px 8px; }
+  .moreBtn { display: none !important; }
+  .notesMore { display: contents; }
+  .notes { flex: 1; min-height: 0; padding: 16px 18px; overflow: auto; font-size: var(--fs, 22px); line-height: 1.6; }
+  .notes ul { margin: 0; padding-left: 1.1em; } .notes li { margin: 0 0 .5em; }
+  .notes b { font-weight: 700; }
+  .notes .empty { color: var(--muted); font-style: italic; }
+  .notes textarea { width: 100%; height: 100%; min-height: 240px; resize: none; background: transparent; color: var(--fg); border: 0; font: inherit; line-height: inherit; outline: none; }
+  .edited { font-size: 12px; color: var(--muted); margin-left: 8px; }
+  .slideTitle { font-size: 18px; font-weight: 600; margin: 8px 0 0; }
+  footer { display: flex; gap: 8px; padding: 10px 16px; overflow-x: auto; border-top: 1px solid var(--line); }
+  footer button { flex: 0 0 auto; padding: 0; width: 128px; aspect-ratio: 16 / 9; overflow: hidden; position: relative; border-radius: 6px; }
+  footer img, footer .thumb { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .55; }
+  footer .thumb { position: relative; overflow: hidden; background: #fff; pointer-events: none; }
+  footer .thumb > div { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; color: #111; }
+  footer .thumb .slide { position: absolute; inset: 0; box-sizing: border-box; overflow: hidden; }
+  footer button.on .thumb { opacity: 1; }
+  footer span { position: absolute; left: 6px; bottom: 4px; font-size: 11px; text-shadow: 0 1px 2px #000; }
+  footer button.on { border: 2px solid var(--accent); } footer button.on img { opacity: 1; }
+  .nav { display: none; }
+
+  /* 手機版：講稿是主角，底部大顆換頁鍵，可左右滑換頁 */
+  @media (max-width: 760px), (max-height: 500px) {
+    html, body { font-size: 14px; overscroll-behavior: none; }
+    body { -webkit-text-size-adjust: 100%; }
+    header { flex-wrap: wrap; gap: 8px; padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top)); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+    header h1, .clock, .label span:last-child { display: none; }
+    .timer { font-size: 20px; }
+    header button { min-height: 40px; padding: 8px 10px; white-space: nowrap; }
+    header button .lbl { display: none; }
+    .pageTimer { font-size: 13px; padding: 5px 8px; }
+    .pageTimer .lbl { display: none; }
+    #btnRemote { padding: 8px; min-width: 36px; }
+    .notesBar .nextTitle { display: none; }
+    .notesBar { position: relative; }
+    .notesBar button { padding: 8px 10px; min-width: 40px; min-height: 40px; }
+    .notesCard { overflow: visible; }
+    .moreBtn { display: inline-flex !important; }
+    .notesMore { display: none; position: absolute; right: 8px; top: calc(100% + 4px); z-index: 5; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    .notesMore.open { display: flex; }
+    .notesMore button { justify-content: flex-start; padding: 10px 14px; font-size: 15px; }
+    #btnAudience { display: none; }
+    main { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; overflow: hidden; }
+    .cur { flex: 0 0 auto; }
+    .cur .frame { width: min(100%, calc(28dvh * 16 / 9)); min-width: 200px; margin: 0 auto; }
+    .cur .label, .cur .slideTitle { display: none; }
+    .slideTitle { font-size: 15px; margin-top: 6px; }
+    .side { flex: 1; gap: 10px; }
+    .notes { padding: 14px 16px; -webkit-overflow-scrolling: touch; }
+    .notes textarea { font-size: 16px; }
+    footer { display: none; }
+    .nav .nextHint { max-width: 34vw; }
+  }
+  /* 手機和平板（觸控螢幕）都有底部換頁鍵；平板保留電腦版的大版面 */
+  @media (max-width: 760px), (max-height: 500px), (pointer: coarse) {
+    .nav { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 10px; padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); border-top: 1px solid var(--line); background: var(--bg); }
+    .nav button { min-height: 52px; font-size: 16px; border-radius: 12px; touch-action: manipulation; }
+    .nav #navNext { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .nav button:disabled { opacity: .35; }
+    .nav .nextHint { font-size: 13px; color: var(--muted); text-align: center; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .label span:last-child { display: none; }
+  }
+  @media (pointer: coarse) and (min-width: 761px) and (min-height: 501px) {
+    body { overscroll-behavior: none; }
+    header { padding-top: max(10px, env(safe-area-inset-top)); }
+    header button { min-height: 44px; }
+    .nav { grid-template-columns: minmax(0, 220px) 1fr minmax(0, 220px); }
+    header { flex-wrap: wrap; gap: 10px; }
+    header button { white-space: nowrap; }
+  }
+  /* 平板直放：上面投影片、下面講稿（下一頁標題顯示在換頁列） */
+  @media (pointer: coarse) and (min-width: 761px) and (min-height: 501px) and (orientation: portrait) {
+    main { display: flex; flex-direction: column; overflow: hidden; }
+    .cur { flex: 0 0 auto; }
+    .side { flex: 1; }
+    .notesBar .nextTitle { display: none; }
+  }
+  /* 手機橫放：左邊投影片、右邊講稿 */
+  @media (max-height: 500px) and (orientation: landscape) {
+    main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+    .cur .frame { width: min(100%, calc((100dvh - 170px) * 16 / 9)); min-width: 0; }
+    .side { height: 100%; }
+    .nav button { min-height: 44px; }
+    .slideTitle { display: none; }
+  }
+  /* 手機遙控 */
+  #btnRemote .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+  #btnRemote[data-s=online] .dot { background: var(--ok); }
+  #btnRemote[data-s=connecting] .dot, #btnRemote[data-s=offline] .dot { background: var(--warn); animation: blink 1s steps(2) infinite; }
+  #btnRemote[data-s=offline] { border-color: var(--warn); }
+  @keyframes blink { 50% { opacity: .25; } }
+  #remoteDlg .dlgBody { padding: 4px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
+  #rInput { font: 700 28px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .2em; text-transform: uppercase; text-align: center; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%; box-sizing: border-box; }
+  #rInput:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #rMsg { margin: 0; font-size: 14px; color: var(--muted); }
+  #rMsg.ok { color: var(--ok); } #rMsg.warn { color: var(--warn); }
+  #remoteDlg .row { display: flex; gap: 8px; }
+  #remoteDlg .row button { flex: 1; min-height: 44px; font-size: 15px; }
+  #hostBox { display: none; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+  #hQR { width: 220px; height: 220px; background: #fff; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #111; padding: 4px; }
+  #hQR svg { width: 100%; height: 100%; display: block; }
+  #hCode { font: 600 34px/1.1 ui-monospace, Menlo, monospace; letter-spacing: .14em; }
+  #hLink { margin: 0; font-size: 12px; color: var(--muted); word-break: break-all; }
+  #hMsg { margin: 0; font-size: 14px; font-weight: 600; } #hMsg.ok { color: var(--ok); } #hMsg.warn { color: var(--warn); }
+  @media (pointer: fine) { #hostBox { display: flex; } #joinBox { display: none !important; } }
+  #joinBox { display: flex; flex-direction: column; gap: 12px; }
+  #rGo { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  #btnVideo, #navVideo { display: none; }
+  body.isVideo #btnVideo { display: inline-flex; }
+  @media (max-width: 760px), (max-height: 500px), (pointer: coarse) { body.isVideo #btnVideo { display: none; } }  /* 觸控裝置用底部的大按鈕 */
+  body.isVideo .nav #navVideo { display: inline-flex; }
+  body.isVideo .nav .nextHint { display: none; }
+  .nav #navVideo { min-width: 0; overflow: hidden; }
+  @media (pointer: coarse) { #btnAudience { display: none; } }  /* 平板、手機不會拿來開投影畫面 */
+</style>
+</head>
+<body>
+<header>
+  <h1>講者模式</h1>
+  <span class="timer" id="timer" title="點一下暫停／繼續">00:00</span>
+  <button id="btnPause"></button>
+  <button id="btnReset" title="總時間和各頁秒數都歸零"></button>
+  <span class="pageTimer" id="pageTimer" title="這一頁講了多久">本頁 00:00</span>
+  <button id="btnTimes" title="看每一頁實際講了幾秒"></button>
+  <span class="clock" id="clock"></span>
+  <span class="spacer"></span>
+  <span id="page"></span>
+  <button id="btnVideo" title="播放／暫停觀眾畫面的影片"></button>
+  <button id="btnRemote" data-s="off" title="手機遙控：連上觀眾畫面，用這台裝置翻頁"><span class="dot" aria-hidden="true"></span><span class="lbl" id="btnRemoteLbl">手機遙控</span></button>
+  <button id="btnAudience" title="開一個給觀眾看的視窗，拖到投影螢幕後按 F 全螢幕"></button>
+</header>
+<main>
+  <section class="cur">
+    <p class="label"><span>目前頁面</span><span>← → 或空白鍵換頁</span></p>
+    <div class="frame"><iframe id="curFrame" title="目前頁面"></iframe></div>
+    <p class="slideTitle" id="curTitle"></p>
+  </section>
+  <section class="side">
+    <div class="notesCard" id="notesCard">
+      <div class="notesBar">
+        <span class="notesLabel">講稿</span>
+        <span class="nextTitle" id="nextTitle"></span>
+        <span class="spacer"></span>
+        <button id="btnSmaller" class="iconOnly" aria-label="講稿字縮小" title="字縮小"></button>
+        <button id="btnBigger" class="iconOnly" aria-label="講稿字放大" title="字放大"></button>
+        <button id="btnMore" class="iconOnly moreBtn" aria-label="更多" title="更多" aria-expanded="false"></button>
+        <span class="notesMore" id="notesMore">
+          <button id="btnEdit" title="直接改這頁講稿，存在這台裝置的瀏覽器"></button>
+          <button id="btnExport" title="把改過的講稿下載成文字檔"></button>
+        </span>
+      </div>
+      <div class="notes" id="notes" aria-live="polite"></div>
+    </div>
+  </section>
+</main>
+<footer id="strip"></footer>
+<dialog id="timesDlg" aria-labelledby="timesTitle">
+  <div class="dlgHead"><h2 id="timesTitle">各頁秒數</h2><span class="spacer"></span><button id="btnCopyTimes"></button><button id="btnCloseTimes" class="iconOnly" aria-label="關閉"></button></div>
+  <p class="dlgNote">換頁時自動記錄，回到同一頁會累加。暫停時不計時，按「重設」歸零。</p>
+  <div class="dlgBody"><table id="timesTable"></table></div>
+</dialog>
+<dialog id="remoteDlg" aria-labelledby="remoteTitle">
+  <div class="dlgHead"><h2 id="remoteTitle">手機遙控</h2><span class="spacer"></span><button id="btnCloseRemote" class="iconOnly" aria-label="關閉"></button></div>
+  <p class="dlgNote">用手機相機掃這個 QR code，或在手機講者模式輸入代碼。兩邊都要有網路，不用連同一個 Wi-Fi。</p>
+  <div class="dlgBody">
+    <div id="hostBox">
+      <div id="hQR">產生中…</div>
+      <div id="hCode"></div>
+      <p id="hLink"></p>
+      <p id="hMsg" aria-live="polite"></p>
+      <div class="row" style="width:100%"><button id="hNew">換一組代碼</button><button id="hOff">關閉遙控</button></div>
+    </div>
+    <div id="joinBox">
+    <input id="rInput" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="代碼" aria-label="遙控代碼">
+    <p id="rMsg" aria-live="polite"></p>
+    <div class="row"><button id="rStop">中斷連線</button><button id="rGo">連線</button></div>
+    </div>
+  </div>
+</dialog>
+<nav class="nav" aria-label="換頁">
+  <button id="navPrev"></button>
+  <span class="nextHint" id="nextHint"></span>
+  <button id="navVideo"></button>
+  <button id="navNext"></button>
+</nav>
+<script src="config.js"></script>
+<script src="deck.js"></script>
+<script src="remote.js"></script>
+<script>
+const D = window.DECK, S = D.slides, N = S.map(x => ({ t: x.title || '', n: x.notes || '' })), ch = new BroadcastChannel('deck');
+// 講稿可以在這裡直接改，改過的存在這台電腦的瀏覽器（localStorage），不會影響其他人
+const KEY = 'deck-notes:' + (D.title || location.pathname);  // 不同簡報的修改分開存
+if (D.title) document.title = '講者模式｜' + D.title;
+if (D.css) { const st = document.createElement('style'); st.textContent = D.css; document.head.appendChild(st); }
+let local = {}; try { local = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+const noteOf = i => (i in local ? local[i] : N[i].n);
+let editing = false;
+let cur = Math.max(0, Math.min(S.length - 1, (parseInt(location.hash.slice(1)) || 1) - 1));
+const $ = id => document.getElementById(id);
+// 按鈕圖示（線條風格，跟著文字顏色）
+const ICON = {
+  pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
+  play: '<path d="M7 5v14l11-7z"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  smaller: '<path d="M4 18 8.5 6 13 18"/><path d="M5.7 14h5.6"/><path d="M16 12h5"/>',
+  bigger: '<path d="M4 18 8.5 6 13 18"/><path d="M5.7 14h5.6"/><path d="M16 12h5M18.5 9.5v5"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  done: '<path d="M20 6 9 17l-5-5"/>',
+  download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  screen: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  prev: '<path d="m15 18-6-6 6-6"/>',
+  next: '<path d="m9 18 6-6-6-6"/>',
+  list: '<path d="M9 6h12M9 12h12M9 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  close: '<path d="M18 6 6 18M6 6l12 12"/>',
+  video: '<rect x="2" y="5" width="15" height="14" rx="2"/><path d="m17 10 5-3v10l-5-3"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+};
+const setBtn = (el, icon, label, after) => {
+  const svg = `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[icon]}</svg>`, txt = label ? `<span class="lbl">${label}</span>` : '';
+  el.innerHTML = after ? txt + svg : svg + txt;
+};
+$('curFrame').src = `./?mirror#${cur + 1}`;
+
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function md(t) {
+  if (!t.trim()) return '<p class="empty">（這頁沒有講稿）</p>';
+  const lines = esc(t).replace(/&amp;#32;/g, ' ').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').split('\n').filter(l => l.trim());
+  return lines.every(l => l.startsWith('- ')) ? `<ul>${lines.map(l => `<li>${l.slice(2)}</li>`).join('')}</ul>` : lines.map(l => `<p>${l.replace(/^- /, '')}</p>`).join('');
+}
+
+S.forEach((s, i) => {
+  const b = document.createElement('button');
+  if (s.plate) b.innerHTML = `<img src="assets/${s.plate}" alt="">`;
+  else { const t = document.createElement('div'); t.className = 'thumb'; const c = document.createElement('div'); c.innerHTML = s.html || ''; c.style.transform = 'scale(' + 128 / 1920 + ')'; t.appendChild(c); b.appendChild(t); }
+  b.insertAdjacentHTML('beforeend', `<span>${i + 1}</span>`); b.title = N[i].t;
+  b.onclick = () => set(i, true); $('strip').appendChild(b);
+});
+
+function show() {
+  $('page').textContent = `${cur + 1} / ${S.length}`;
+  $('nextTitle').textContent = cur + 1 < S.length ? `下一頁：${N[cur + 1].t}` : '最後一頁';
+  $('notes').innerHTML = md(noteOf(cur)); $('notes').scrollTop = 0;
+  $('curTitle').innerHTML = esc(N[cur].t) + (cur in local ? '<span class="edited">（講稿已在這台電腦修改）</span>' : '');
+  [...$('strip').children].forEach((b, i) => b.classList.toggle('on', i === cur));
+  $('strip').children[cur].scrollIntoView({ block: 'nearest', inline: 'center' });
+  history.replaceState(null, '', `#${cur + 1}`);
+  document.body.classList.toggle('isVideo', !!S[cur].video); paintVideo();
+  $('navPrev').disabled = cur === 0; $('navNext').disabled = cur === S.length - 1;
+  $('nextHint').textContent = cur + 1 < S.length ? `下一頁：${N[cur + 1].t}` : '最後一頁';
+}
+function set(j, send) {
+  j = Math.max(0, Math.min(S.length - 1, j)); if (j === cur) return;
+  if (editing) stopEdit();  // 先存這頁再換頁
+  flushPage(); cur = j; show(); if (send) { ch.postMessage({ cur }); sendRemote(); }
+}
+ch.onmessage = e => {
+  if (typeof e.data?.room === 'string') return hostInfo(e.data);
+  if (typeof e.data?.vp === 'boolean') { vPaused = e.data.vp; paintVideo(); }
+  if (typeof e.data?.cur === 'number' && !e.data.ask) set(e.data.cur, false);
+};
+ch.postMessage({ cur, ask: true });  // 跟觀眾畫面對齊目前頁
+
+addEventListener('keydown', e => {
+  if (editing) { if (e.key === 'Escape') stopEdit(); return; }
+  if ($('remoteDlg').open || $('timesDlg').open) return;
+  if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); set(cur + 1, true); }
+  else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); set(cur - 1, true); }
+  else if (e.key === 'Home') set(0, true);
+  else if (e.key === 'End') set(S.length - 1, true);
+});
+
+// 計時器
+let t0 = Date.now(), paused = 0, pausedAt = null;
+const mmss = ms => { const s = Math.floor(ms / 1000); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+// 各頁秒數：換頁時把這頁的時間記下來，存在這台裝置的瀏覽器
+const PKEY = 'deck-page-times:' + (D.title || location.pathname);
+let pageMs = S.map(() => 0); try { const v = JSON.parse(localStorage.getItem(PKEY)); if (Array.isArray(v) && v.length === S.length) pageMs = v; } catch (e) {}
+let pageStart = Date.now();
+const savePages = () => { try { localStorage.setItem(PKEY, JSON.stringify(pageMs)); } catch (e) {} };
+function flushPage() { if (!pausedAt) pageMs[cur] += Date.now() - pageStart; pageStart = Date.now(); savePages(); }
+const pageNow = () => pageMs[cur] + (pausedAt ? 0 : Date.now() - pageStart);
+const secs = ms => Math.round(ms / 1000);
+function renderTimes() {
+  const now = S.map((_, i) => i === cur ? pageNow() : pageMs[i]), total = now.reduce((a, b) => a + b, 0);
+  $('timesTable').innerHTML = now.map((ms, i) => `<tr class="${i === cur ? 'on' : ''}"><td>${i + 1}</td><td>${esc(N[i].t)}</td><td>${secs(ms)} 秒</td></tr>`).join('') +
+    `<tr class="total"><td></td><td>總計</td><td>${mmss(total)}</td></tr>`;
+}
+setInterval(() => {
+  $('timer').textContent = mmss((pausedAt || Date.now()) - t0 - paused);
+  $('pageTimer').innerHTML = '<span class="lbl">本頁 </span>' + mmss(pageNow());
+  if ($('timesDlg').open) renderTimes();
+  $('clock').textContent = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+}, 250);
+const togglePause = () => { if (pausedAt) { paused += Date.now() - pausedAt; pausedAt = null; pageStart = Date.now(); setBtn($('btnPause'), 'pause', '暫停'); } else { flushPage(); pausedAt = Date.now(); setBtn($('btnPause'), 'play', '繼續'); } };
+$('btnPause').onclick = $('timer').onclick = togglePause;
+$('btnReset').onclick = () => { t0 = Date.now(); paused = 0; pausedAt = pausedAt ? Date.now() : null; pageMs = S.map(() => 0); pageStart = Date.now(); savePages(); };
+let fs = 22; const font = d => { fs = Math.max(14, Math.min(40, fs + d)); document.body.style.setProperty('--fs', fs + 'px'); };
+if (matchMedia('(max-width: 760px), (max-height: 500px)').matches) font(-4);  // 手機預設字小一點
+$('navPrev').onclick = () => set(cur - 1, true);
+$('navNext').onclick = () => set(cur + 1, true);
+setBtn($('btnPause'), 'pause', '暫停'); setBtn($('btnReset'), 'reset', '重設');
+setBtn($('btnSmaller'), 'smaller'); setBtn($('btnBigger'), 'bigger');
+setBtn($('btnEdit'), 'edit', '編輯'); setBtn($('btnExport'), 'download', '下載');
+setBtn($('btnAudience'), 'screen', '開啟觀眾畫面');
+setBtn($('btnTimes'), 'list', '各頁秒數'); setBtn($('btnCopyTimes'), 'copy', '複製'); setBtn($('btnCloseTimes'), 'close');
+$('btnTimes').onclick = () => { renderTimes(); $('timesDlg').showModal(); };
+$('btnCloseTimes').onclick = () => $('timesDlg').close();
+$('timesDlg').addEventListener('click', e => { if (e.target === $('timesDlg')) $('timesDlg').close(); });
+$('btnCopyTimes').onclick = async () => {
+  const now = S.map((_, i) => i === cur ? pageNow() : pageMs[i]);
+  const txt = now.map((ms, i) => `${i + 1}. ${N[i].t}\t${secs(ms)} 秒`).join('\n') + `\n總計\t${mmss(now.reduce((a, b) => a + b, 0))}`;
+  try { await navigator.clipboard.writeText(txt); setBtn($('btnCopyTimes'), 'done', '已複製'); } catch (e) { setBtn($('btnCopyTimes'), 'close', '無法複製'); }
+  setTimeout(() => setBtn($('btnCopyTimes'), 'copy', '複製'), 1500);
+};
+addEventListener('pagehide', flushPage); setBtn($('btnMore'), 'more');
+// 手機：「⋯」收合編輯、下載；點選項或點外面就關
+const closeMore = () => { $('notesMore').classList.remove('open'); $('btnMore').setAttribute('aria-expanded', 'false'); };
+$('btnMore').onclick = e => { e.stopPropagation(); const on = $('notesMore').classList.toggle('open'); $('btnMore').setAttribute('aria-expanded', on); };
+$('notesMore').addEventListener('click', () => setTimeout(closeMore));
+document.addEventListener('click', e => { if (!e.target.closest('#notesMore, #btnMore')) closeMore(); });
+setBtn($('navPrev'), 'prev', '上一頁'); setBtn($('navNext'), 'next', '下一頁', true);
+// 在投影片或講稿上左右滑動換頁（編輯中不作用；上下捲講稿不會誤觸）
+let sx = null, sy = 0;
+$('notes').parentElement.parentElement.addEventListener('touchstart', e => { if (editing || e.touches.length > 1) { sx = null; return; } sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+$('notes').parentElement.parentElement.addEventListener('touchend', e => {
+  if (sx === null) return; const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) set(cur + (dx < 0 ? 1 : -1), true);
+}, { passive: true });
+$('btnSmaller').onclick = () => font(-2); $('btnBigger').onclick = () => font(2);
+$('btnAudience').onclick = () => window.open(`./#${cur + 1}`, 'deck-audience', 'width=1280,height=720');
+function startEdit() {
+  editing = true; setBtn($('btnEdit'), 'done', '完成'); $('notesCard').classList.add('editing');
+  const ta = document.createElement('textarea'); ta.value = noteOf(cur); ta.setAttribute('aria-label', '講稿');
+  $('notes').replaceChildren(ta); ta.focus();
+}
+function stopEdit() {
+  const ta = $('notes').querySelector('textarea'); editing = false; setBtn($('btnEdit'), 'edit', '編輯'); $('notesCard').classList.remove('editing');
+  if (!ta) return;
+  if (ta.value === N[cur].n) delete local[cur]; else local[cur] = ta.value;
+  try { localStorage.setItem(KEY, JSON.stringify(local)); } catch (e) {}
+  $('notes').innerHTML = md(noteOf(cur));
+  $('curTitle').innerHTML = esc(N[cur].t) + (cur in local ? '<span class="edited">（講稿已在這台電腦修改）</span>' : '');
+}
+
+// ---- 手機遙控：連上觀眾畫面所在的房間，翻頁互相同步（以最後一次操作為準）----
+let R = null, lastSent = 0, vPaused = true;
+function sendRemote() { if (R && R.online) { R.send({ cur }); lastSent = Date.now(); } }
+function paintVideo() {
+  const ic = vPaused ? 'play' : 'pause', lb = vPaused ? '播放影片' : '暫停影片';
+  setBtn($('btnVideo'), ic, lb); setBtn($('navVideo'), ic, vPaused ? '播放' : '暫停'); $('navVideo').setAttribute('aria-label', lb);
+}
+const toggleVideo = () => { ch.postMessage({ v: 'toggle' }); R && R.online && R.send({ v: 'toggle' }); };
+$('btnVideo').onclick = $('navVideo').onclick = toggleVideo;
+if (!window.DeckRemote) $('btnRemote').hidden = true;
+else {
+  let st = 'off', peers = 0, lock = null;
+  const keepAwake = async () => { try { if (st === 'online' && !lock && navigator.wakeLock && document.visibilityState === 'visible') { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); } } catch (e) {} };
+  document.addEventListener('visibilitychange', keepAwake);
+  const paint = () => {
+    $('btnRemote').dataset.s = st;
+    $('btnRemoteLbl').textContent = st === 'off' ? '手機遙控' : st === 'online' ? (peers ? '遙控已連線' : '等待觀眾畫面') : '重新連線中…';
+    $('btnRemote').title = st === 'online' ? `遙控代碼 ${R.room}${peers ? '，已連上觀眾畫面' : '，觀眾畫面還沒開'}` : '手機遙控：連上觀眾畫面，用這台裝置翻頁';
+    const m = $('rMsg');
+    m.className = st === 'online' && peers ? 'ok' : st === 'off' ? '' : 'warn';
+    m.textContent = st === 'off' ? '尚未連線' : st === 'online' ? (peers ? `✓ 已連上觀眾畫面（代碼 ${R.room}），可以開始翻頁` : `已連線（代碼 ${R.room}），但觀眾畫面還沒開遙控`) : st === 'error' ? '連線失敗，重試中…' : '連線中…';
+    $('rStop').disabled = st === 'off';
+  };
+  R = DeckRemote({
+    role: 'presenter',
+    onStatus: s => { st = s; paint(); keepAwake(); if (s !== 'online' && lock) { lock.release().catch(() => {}); lock = null; } },
+    onPeers: list => { const n = list.filter(r => r === 'audience').length; if (n && !peers) R.send({ ask: true }); peers = n; paint(); },
+    onMsg: m => {
+      if (m.joined) return R.send({ ask: true });  // 剛連上或重新連上：以觀眾畫面目前的頁為準
+      if (typeof m.vp === 'boolean') { vPaused = m.vp; paintVideo(); }
+      if (typeof m.cur !== 'number') return;
+      // 自己剛翻頁的 1.5 秒內，忽略觀眾畫面回報的舊頁數，避免連按時畫面跳回去
+      if (Date.now() - lastSent < 1500 && m.cur !== cur) return;
+      set(m.cur, false); ch.postMessage({ cur });
+    },
+  });
+  const connect = code => { if (!R.start(code)) { $('rMsg').className = 'warn'; $('rMsg').textContent = '代碼是 6 個英數字'; return false; } return true; };
+  $('btnRemote').onclick = () => { if (matchMedia('(pointer: fine)').matches) askRoom('get'); $('rInput').value = R.room || DeckRemote.saved('presenter') || ''; paint(); $('remoteDlg').showModal(); if (!R.room) $('rInput').focus(); };
+  $('rGo').onclick = () => { if (connect($('rInput').value)) setTimeout(() => $('remoteDlg').close(), 600); };
+  $('rInput').addEventListener('input', () => { $('rInput').value = DeckRemote.clean($('rInput').value); });
+  $('rInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('rGo').click(); });
+  $('rStop').onclick = () => { R.stop(); paint(); };
+  $('btnCloseRemote').onclick = () => $('remoteDlg').close();
+  $('remoteDlg').addEventListener('click', e => { if (e.target === $('remoteDlg')) $('remoteDlg').close(); });
+  // 掃 QR code 進來的網址帶 ?room=代碼：直接連線，然後把代碼從網址拿掉
+  const q = DeckRemote.clean(new URLSearchParams(location.search).get('room'));
+  if (q) { connect(q); history.replaceState(null, '', location.pathname + location.hash); }
+  else if (DeckRemote.saved('presenter')) connect(DeckRemote.saved('presenter'));
+  setBtn($('btnCloseRemote'), 'close'); paint();
+}
+
+// ---- 電腦上的講者模式：顯示觀眾畫面的遙控代碼和 QR code，讓手機掃 ----
+let hostSeen = null, hostTimer = null, qrLoad = null;
+function hostInfo(d) {
+  hostSeen = d; clearTimeout(hostTimer);
+  $('hCode').textContent = d.room || '—'; $('hLink').textContent = d.link || '';
+  const m = $('hMsg');
+  m.className = d.st === 'online' && d.peers ? 'ok' : 'warn';
+  m.textContent = !d.room ? '遙控已關閉' : d.st === 'online' ? (d.peers ? `✓ 已連線 ${d.peers} 支手機` : '已就緒，等待手機掃描…') : '連線中…（需要網路）';
+  const box = $('hQR');
+  if (!d.link) { box.textContent = '—'; return; }
+  const draw = () => { const q = qrcode(0, 'M'); q.addData(d.link); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }); };
+  if (window.qrcode) return draw();
+  qrLoad = qrLoad || new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = 'qrcode.js'; sc.onload = ok; sc.onerror = no; document.head.appendChild(sc); });
+  qrLoad.then(draw, () => { box.textContent = '無法產生 QR code，請改用代碼'; });
+}
+function askRoom(rq) {
+  ch.postMessage({ rq });
+  clearTimeout(hostTimer);
+  hostTimer = setTimeout(() => { if (rq !== 'off') { $('hQR').textContent = '—'; $('hCode').textContent = ''; $('hLink').textContent = ''; $('hMsg').className = 'warn'; $('hMsg').textContent = '找不到觀眾畫面：請先按「開啟觀眾畫面」，投影畫面開著才能配對'; } }, 1200);
+}
+$('hNew').onclick = () => askRoom('new');
+$('hOff').onclick = () => askRoom('off');
+paintVideo();
+$('btnEdit').onclick = () => (editing ? stopEdit() : startEdit());
+$('btnExport').onclick = () => {
+  if (editing) stopEdit();
+  const txt = N.map((x, i) => `## ${i + 1}. ${x.t}\n\n${noteOf(i)}\n`).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/markdown' })); a.download = (D.title || 'deck') + '_講稿.md'; a.click();
+};
+show();
+</script>
+</body>
+</html>
