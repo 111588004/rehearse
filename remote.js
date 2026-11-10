@@ -70,7 +70,7 @@
       get room() { return room; }, get online() { return joined; },
       start(code) { code = clean(code); if (code.length !== 6) return false; if (code !== room) { stop(); room = code; } want = true; try { localStorage.setItem(RKEY(role), room); } catch (e) {} open(); return true; },
       stop() { stop(); room = null; try { localStorage.removeItem(RKEY(role)); } catch (e) {} },
-      send(p) { return joined && push('broadcast', { type: 'broadcast', event: 'deck', payload: { ...p, from: id } }); },
+      send(p) { return joined && push('broadcast', { type: 'broadcast', event: 'deck', payload: { ...p, from: id, role } }); },  // role：讓收到的一方知道是觀眾畫面還是講者送的
     };
   }
   Remote.saved = role => { try { return clean(localStorage.getItem(RKEY(role))); } catch (e) { return ''; } };

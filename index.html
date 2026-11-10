@@ -304,6 +304,8 @@ if (ROLE === 'audience' && window.DeckRemote) {
     onStatus: s => { st = s; paint(); },
     onPeers: list => { peers = list.filter(r => r === 'presenter').length; paint(); },
     onMsg: m => {
+      // 不理會其他觀眾畫面的訊息：同一個房間有兩個觀眾畫面（例如不小心多開分頁）時，互相回傳頁數會無限迴圈、頁數上下亂跳
+      if (m.role === 'audience') return;
       if (m.joined || m.ask) return R.send(state());
       if (m.v === 'toggle') return togglePlay();
       if (typeof m.cur === 'number') { const j = Math.max(0, Math.min(S.length - 1, m.cur)); if (j !== cur) { go(j); ch.postMessage({ cur }); } R.send(state()); }
