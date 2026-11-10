@@ -4,14 +4,46 @@
 
 純靜態網頁，不用安裝、沒有 build，丟到任何靜態主機就能用。
 
-## 功能
+![一句 prompt，Claude Code 做出整份簡報](docs/demo-prompt.gif)
 
-- **觀眾畫面**：方向鍵、空白鍵或點擊換頁，`F` 全螢幕
-- **講者模式**（`P`）：目前頁面、講稿、總計時、本頁計時、各頁秒數統計
-- **直接改講稿**：邊練邊改，存在這台電腦，按「下載」匯出成 Markdown
+<sub>上面這份 6 頁簡報和講稿，是 Claude Code 讀了 AGENTS.md 之後，用畫面上那一句 prompt 做出來的，沒有手動修改。</sub>
+
+## 講者模式
+
+![講者模式](docs/presenter.png)
+
+- **(A)** 總計時和本頁計時，點一下暫停
+- **(B)** 目前頁面，跟觀眾畫面同步
+- **(C)** 講稿，可以直接編輯、調整字級
+- **(D)** 各頁秒數統計
+- **(E)** 縮圖列，點一下跳頁
+
+<table>
+<tr>
+<td width="24%" valign="top"><img src="docs/mobile.png" alt="手機版講者模式"></td>
+<td width="44%" valign="top"><img src="docs/presenter-light.png" alt="淺色模式"></td>
+<td width="32%" valign="top"><img src="docs/times.png" alt="各頁秒數"></td>
+</tr>
+<tr>
+<td valign="top"><b>手機版</b>：講稿是主角，底部有大顆換頁鍵，可以左右滑</td>
+<td valign="top"><b>淺色模式</b>：跟著系統自動切換</td>
+<td valign="top"><b>各頁秒數</b>：排練完就知道哪一頁講太久</td>
+</tr>
+</table>
+
+## 排練循環
+
+![邊排練邊改講稿，再下載交給 agent](docs/demo-edit.gif)
+
+1. 邊講邊按「編輯」改講稿，改過的存在這台電腦
+2. 按「下載」拿到一份 Markdown
+3. 交給 agent：「把這份講稿寫回 deck.js」
+
+## 其他功能
+
 - **手機遙控**（選用）：手機掃 QR code 翻頁，不用連同一個 Wi-Fi
 - **影片頁**：開簡報時整支預載，會場斷網也能播；講者模式可以控制播放
-- 手機和平板版的講者模式，支援明暗模式
+- 同一台電腦的觀眾畫面和講者模式自動同步，不用設定
 
 ## 開始
 
