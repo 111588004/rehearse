@@ -1,6 +1,10 @@
 # Rehearse 排練
 
-讓 AI 寫投影片，你專心排練。一個資料夾就是一份簡報：內容和講稿都寫在 `deck.js`，交給你的 agent（Claude Code、Codex、Cursor……）來做。
+越來越多人用 HTML 做簡報，也常交給 AI agent 來寫。但投影片做完之後，還缺一個好用的排練工具：放講稿、邊練邊修講稿、記錄每頁講了多久。
+
+**Rehearse 就是這個排練工具。** 投影片和講稿都寫在 `deck.js`，交給你的 agent（Claude Code、Codex、Cursor……）來做，你專心排練。
+
+**為什麼用 HTML**：相容性高，圖片、GIF、影片都能直接放，也能用 CSS 做動畫，想加什麼都很容易擴充。
 
 純靜態網頁，不用安裝、沒有 build，丟到任何靜態主機就能用。
 
