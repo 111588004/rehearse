@@ -55,6 +55,16 @@ It's a plain static site: nothing to install, no build step. Host it anywhere.
 
 <sub>Left: the audience view. Right: the phone. After the phone scans the QR code, both sides show they are paired; tapping Next on the phone then advances the projected slide. The two are actually connected through Supabase. The phone camera screen, arrows and tap indicator are added for illustration.</sub>
 
+**Reconnects on its own**: if the venue Wi-Fi is flaky or the phone screen locks and wakes up, the connection recovers automatically. No need to scan again.
+
+- The connection is checked every 15 seconds. If there is no reply within 8 seconds, it counts as dropped and reconnects right away. When networks switch, connections often hang instead of closing cleanly, so it checks actively
+- It keeps retrying, starting at 1 second and backing off to at most every 8 seconds
+- When the phone comes back to the foreground or the network returns, it reconnects immediately without waiting
+- The pairing code is saved in the browser, so a refresh rejoins the same room
+- Messages say "we are on slide N", not "next slide", so duplicated or missed messages never skip a slide. After reconnecting, the phone first asks the audience view which slide it is on
+- While connected, the phone screen stays awake so it won't sleep mid-talk
+- If it really can't connect, both sides keep working on their own, and the laptop keyboard still changes slides
+
 - **Video slides**: videos are fully preloaded when the deck opens, so they play even if the venue's network drops. You can play and pause them from presenter mode
 - The audience view and presenter mode stay in sync on the same computer, with no setup
 
