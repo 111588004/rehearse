@@ -53,7 +53,7 @@ It's a plain static site: nothing to install, no build step. Host it anywhere.
 
 ![Scan the QR code, tap Next on the phone, and the projected slide follows](docs/demo-remote.gif)
 
-<sub>Left: the audience view. Right: presenter mode on a phone. The two are actually connected through Supabase; this isn't an edit.</sub>
+<sub>Left: the audience view. Right: the phone. After the phone scans the QR code, both sides show they are paired; tapping Next on the phone then advances the projected slide. The two are actually connected through Supabase. The phone camera screen, arrows and tap indicator are added for illustration.</sub>
 
 - **Video slides**: videos are fully preloaded when the deck opens, so they play even if the venue's network drops. You can play and pause them from presenter mode
 - The audience view and presenter mode stay in sync on the same computer, with no setup
