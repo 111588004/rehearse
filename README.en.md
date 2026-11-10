@@ -49,7 +49,12 @@ It's a plain static site: nothing to install, no build step. Host it anywhere.
 
 ## More features
 
-- **[Phone remote](#phone-remote)** (optional): scan a QR code and change slides from your phone. No shared Wi-Fi needed
+**Phone remote** (optional): scan a QR code and change slides from your phone. No shared Wi-Fi needed. See [Phone remote setup](#phone-remote-setup).
+
+![Scan the QR code, tap Next on the phone, and the projected slide follows](docs/demo-remote.gif)
+
+<sub>Left: the audience view. Right: presenter mode on a phone. The two are actually connected through Supabase; this isn't an edit.</sub>
+
 - **Video slides**: videos are fully preloaded when the deck opens, so they play even if the venue's network drops. You can play and pause them from presenter mode
 - The audience view and presenter mode stay in sync on the same computer, with no setup
 
@@ -75,11 +80,7 @@ The folder is the website. Deploy it as-is to Vercel, Netlify, GitHub Pages or C
 
 Note: **once deployed, `deck.js` is public, and so are your speaker notes.** If you want to keep them private, only run it locally.
 
-## Phone remote
-
-![Scan the QR code, tap Next on the phone, and the projected slide follows](docs/demo-remote.gif)
-
-<sub>Left: the audience view. Right: presenter mode on a phone. The two are actually connected through Supabase; this isn't an edit.</sub>
+## Phone remote setup
 
 If you open the audience view and presenter mode in two windows on the same computer, they sync automatically with no setup.
 
