@@ -12,7 +12,7 @@ It's a plain static site: nothing to install, no build step. Host it anywhere.
 
 > The interface is currently in Traditional Chinese.
 
-![Rehearse your HTML deck: edit notes as you rehearse, time every slide, export notes for your agent](docs/hero.en.png)
+![Rehearse your HTML deck: edit notes as you rehearse, time every slide, export notes for your agent](docs/hero.en.gif)
 
 ## Presenter mode
 
